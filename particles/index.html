@@ -1,6 +1,6 @@
 <html>
   <head>
-    <title>Particles Demo - PlayfulJS</title>
+    <title>Particles Demo</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   </head>
   <body style='background: #000'>
@@ -24,16 +24,19 @@
         this.y += velocityY;
       };
 
-      Particle.prototype.attract = function(x, y) {
+      Particle.prototype.attract = function(x, y, repel) {
         var dx = x - this.x;
         var dy = y - this.y;
-        var distance = Math.sqrt(dx * dx + dy * dy);
-        this.x += dx / distance;
-        this.y += dy / distance;
+        var distance = Math.sqrt(dx * dx + dy * dy) || 1;
+        var force = repel ? -5 : 1;
+        this.x += (dx / distance) * force;
+        this.y += (dy / distance) * force;
       };
 
-      Particle.prototype.draw = function() {
-        ctx.strokeStyle = '#ffffff';
+      Particle.prototype.draw = function(ctx) {
+        var velocity = Math.sqrt(Math.pow(this.x - this.oldX, 2) + Math.pow(this.y - this.oldY, 2));
+        var hue = (velocity * 30 + 200) % 360; // Blue to purple/pink
+        ctx.strokeStyle = 'hsl(' + hue + ', 100%, 60%)';
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(this.oldX, this.oldY);
@@ -47,39 +50,42 @@
       var width = display.width = window.innerWidth;
       var height = display.height = window.innerHeight;
       var mouse = { x: width * 0.5, y: height * 0.5 };
+      var isRepelling = false;
 
-      for (var i = 0; i < 200; i++) {
+      for (var i = 0; i < 300; i++) {
         particles[i] = new Particle(Math.random() * width, Math.random() * height);
       }
 
       display.addEventListener('mousemove', onMousemove);
+      display.addEventListener('mousedown', function() { isRepelling = true; });
+      display.addEventListener('mouseup', function() { isRepelling = false; });
+      display.addEventListener('touchstart', function(e) { isRepelling = true; onMousemove(e.touches[0]); });
+      display.addEventListener('touchend', function() { isRepelling = false; });
+      display.addEventListener('touchmove', function(e) { onMousemove(e.touches[0]); });
 
       function onMousemove(e) {
         mouse.x = e.clientX;
         mouse.y = e.clientY;
       }
 
+      ctx.globalCompositeOperation = 'screen';
       requestAnimationFrame(frame);
 
       function frame() {
         requestAnimationFrame(frame);
-        ctx.clearRect(0, 0, width, height);
+        // Clear with slight opacity for trails
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+        ctx.fillRect(0, 0, width, height);
+        ctx.globalCompositeOperation = 'screen';
+        
         for (var i = 0; i < particles.length; i++) {
-          particles[i].attract(mouse.x, mouse.y);
+          particles[i].attract(mouse.x, mouse.y, isRepelling);
           particles[i].integrate();
-          particles[i].draw();
+          particles[i].draw(ctx);
         }
       }
 
-    </script>
-    <script>
-      (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-      (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-      m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-      })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
-
-      ga('create', 'UA-50885475-1', 'playfuljs.com');
-      ga('send', 'pageview');
     </script>
   </body>
 </html>

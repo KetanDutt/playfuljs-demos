@@ -1,7 +1,7 @@
 <html>
   <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-    <title>Terrain Demo - PlayfulJS</title>
+    <title>Terrain Demo</title>
   </head>
   <body style='background: #000'>
     <canvas id='display' width='1' height='1' />
@@ -78,9 +78,13 @@
         }
       };
 
-      Terrain.prototype.draw = function(ctx, width, height) {
+      Terrain.prototype.draw = function(ctx, width, height, time) {
         var self = this;
         var waterVal = this.size * 0.3;
+        var panX = Math.sin(time * 0.5) * 100;
+        var panY = Math.cos(time * 0.3) * 50;
+
+        ctx.clearRect(0, 0, width, height);
 
         for (var y = 0; y < this.size; y++) {
           for (var x = 0; x < this.size; x++) {
@@ -88,7 +92,7 @@
             var top = project(x, y, val);
             var bottom = project(x + 1, y, 0);
             var water = project(x, y, waterVal);
-            var style = brightness(x, y, this.get(x + 1, y) - val);
+            var style = colorize(x, y, this.get(x + 1, y) - val, val, waterVal);
 
             rect(top, bottom, style);
             rect(water, bottom, 'rgba(50, 150, 200, 0.15)');
@@ -101,10 +105,22 @@
           ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
         }
 
-        function brightness(x, y, slope) {
+        function colorize(x, y, slope, val, waterVal) {
           if (y === self.max || x === self.max) return '#000';
           var b = ~~(slope * 50) + 128;
-          return ['rgba(', b, ',', b, ',', b, ',1)'].join('');
+          b = Math.max(0, Math.min(255, b));
+          var r = b, g = b, bl = b;
+          if (val < waterVal + 20) {
+            // sand
+            r = ~~(b * 1.1); g = ~~(b * 1.0); bl = ~~(b * 0.7);
+          } else if (val > self.size * 0.7) {
+            // snow
+            r = Math.min(255, ~~(b * 1.3)); g = Math.min(255, ~~(b * 1.3)); bl = Math.min(255, ~~(b * 1.3));
+          } else {
+            // grass
+            r = ~~(b * 0.6); g = ~~(b * 1.0); bl = ~~(b * 0.6);
+          }
+          return ['rgba(', r, ',', g, ',', bl, ',1)'].join('');
         }
 
         function iso(x, y) {
@@ -116,8 +132,8 @@
 
         function project(flatX, flatY, flatZ) {
           var point = iso(flatX, flatY);
-          var x0 = width * 0.5;
-          var y0 = height * 0.2;
+          var x0 = width * 0.5 + panX;
+          var y0 = height * 0.2 + panY;
           var z = self.size * 0.5 - flatZ + point.y * 0.75;
           var x = (point.x - self.size * 0.5) * 6;
           var y = (self.size - point.y) * 0.005 + 1;
@@ -134,19 +150,18 @@
       var width = display.width = window.innerWidth;
       var height = display.height = window.innerHeight;
 
-      var terrain = new Terrain(9);
+      // Lower detail slightly for performance since we're animating it
+      var terrain = new Terrain(7);
       terrain.generate(0.7);
-      terrain.draw(ctx, width, height);
 
-    </script>
-    <script>
-      (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-      (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-      m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-      })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+      var startTime = Date.now();
+      function render() {
+        var time = (Date.now() - startTime) / 1000;
+        terrain.draw(ctx, width, height, time);
+        requestAnimationFrame(render);
+      }
+      render();
 
-      ga('create', 'UA-50885475-1', 'playfuljs.com');
-      ga('send', 'pageview');
     </script>
   </body>
 </html>

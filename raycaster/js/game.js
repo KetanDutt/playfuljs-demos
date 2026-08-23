@@ -1,6 +1,35 @@
 var CIRCLE = Math.PI * 2;
 var MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry/i.test(navigator.userAgent);
 
+var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playStepSound() {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    var osc = audioCtx.createOscillator();
+    var gainNode = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(100, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.1);
+    gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.1);
+}
+function playSwingSound() {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    var osc = audioCtx.createOscillator();
+    var gainNode = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15);
+    gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.15);
+}
 function Controls() {
 	this.codes = {
 		37: 'left', // left arrow
@@ -28,6 +57,11 @@ function Controls() {
 			player.cycleWeapons();
 		}
 	});
+    document.addEventListener('mousedown', function(e){
+        if (player) {
+            player.attack();
+        }
+    });
 	//document.addEventListener('touchstart', this.onTouch.bind(this), false);
 	//document.addEventListener('touchmove', this.onTouch.bind(this), false);
 	//document.addEventListener('touchend', this.onTouchEnd.bind(this), false);
@@ -89,6 +123,9 @@ function Player(x, y, direction) {
 	this.direction = direction;
 	this.maxStamina = 10;
 	this.stamina = this.maxStamina;
+    this.maxHealth = 100;
+    this.health = this.maxHealth;
+    this.damageIndicators = [];
 	this.inventory = [
 		new Bitmap('img/goo_hand.png', 320, 332),
 		new Bitmap('img/knife_hand.png', 319, 320)
@@ -97,6 +134,17 @@ function Player(x, y, direction) {
 	
 	this.paces = 0;
 }
+
+Player.prototype.takeDamage = function(amount, angle) {
+    this.health -= amount;
+    this.damageIndicators.push({ angle: angle, time: 1.0 });
+    
+    // Play a hurt sound here if we wanted
+    if (this.health <= 0) {
+        this.health = this.maxHealth;
+        generateLevel(); // Restart level on death
+    }
+};
 
 Player.prototype.rotate = function(angle) {
 	this.direction = (this.direction + angle + CIRCLE) % (CIRCLE);
@@ -107,8 +155,40 @@ Player.prototype.walk = function(distance, angle, map) {
 	var dy = Math.sin(this.direction + angle) * distance;
 	if (map.get(this.x + dx, this.y) <= 0) this.x += dx;
 	if (map.get(this.x, this.y + dy) <= 0) this.y += dy;
+    
+    var oldPaces = this.paces;
 	this.paces += distance;
+    if (Math.floor(oldPaces * 2) !== Math.floor(this.paces * 2)) {
+        playStepSound();
+    }
 };
+
+Player.prototype.attack = function() {
+    if (this.attackTime > 0) return;
+    this.attackTime = 0.2;
+    playSwingSound();
+    
+    for (var i = 0; i < map.objects.length; i++) {
+        var obj = map.objects[i];
+        if (obj && !obj.dead) {
+            var dx = obj.x - this.x;
+            var dy = obj.y - this.y;
+            var dist = Math.sqrt(dx*dx + dy*dy);
+            
+            // Calculate angle to enemy to ensure they are somewhat in front
+            var angleToEnemy = Math.atan2(dy, dx);
+            var angleDiff = Math.abs(this.direction - angleToEnemy);
+            // Normalize angle diff
+            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+            angleDiff = Math.abs(angleDiff);
+
+            if (dist < 2.5 && angleDiff < Math.PI / 4) {
+                obj.dead = true;
+                // Add a hit sound?
+            }
+        }
+    }
+}
 
 Player.prototype.update = function(controls, map, seconds) {
 
@@ -130,6 +210,31 @@ Player.prototype.update = function(controls, map, seconds) {
 	} else if(player.stamina < 10) {
 		player.stamina+=.5;
 	}
+
+    if (this.attackTime > 0) {
+        this.attackTime = Math.max(0, this.attackTime - seconds);
+    }
+    
+    // Tick down damage indicators
+    for (var i = this.damageIndicators.length - 1; i >= 0; i--) {
+        this.damageIndicators[i].time -= seconds;
+        if (this.damageIndicators[i].time <= 0) {
+            this.damageIndicators.splice(i, 1);
+        }
+    }
+
+    // Check for exit
+    for (var i = 0; i < map.objects.length; i++) {
+        var obj = map.objects[i];
+        if (obj && obj.isExit) {
+            var dx = obj.x - this.x;
+            var dy = obj.y - this.y;
+            if (Math.sqrt(dx*dx + dy*dy) < 1) {
+                generateLevel(); // Level cleared, load next maze!
+                break;
+            }
+        }
+    }
 };
 
 Player.prototype.cycleWeapons = function(){
@@ -253,10 +358,86 @@ Camera.prototype.onKey = function(val,e){
 }
 
 Camera.prototype.render = function(player, map, objects) {
+    if (player.attackTime > 0) {
+        this.ctx.save();
+        var shakeX = (Math.random() - 0.5) * 10 * (player.attackTime / 0.2);
+        var shakeY = (Math.random() - 0.5) * 10 * (player.attackTime / 0.2);
+        this.ctx.translate(shakeX, shakeY);
+    }
+
 	this.drawSky(player.direction, map.skybox, map.light);
 	this.drawColumns(player, map, objects);
-	this.drawWeapon(player.weapon, player.paces);
+	this.drawWeapon(player);
 	this.drawMiniMap(map, player);
+    this.drawHUD(player);
+
+    if (player.attackTime > 0) {
+        this.ctx.restore();
+    }
+};
+
+Camera.prototype.drawHUD = function(player) {
+    var ctx = this.ctx;
+    
+    // Draw Health Text & Bar
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '24px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('Health:', 20, this.height - 20);
+    
+    var maxBarWidth = 200;
+    var barWidth = (player.health / player.maxHealth) * maxBarWidth;
+    ctx.fillStyle = '#550000';
+    ctx.fillRect(120, this.height - 40, maxBarWidth, 24);
+    ctx.fillStyle = '#ff0000';
+    ctx.fillRect(120, this.height - 40, Math.max(0, barWidth), 24);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(120, this.height - 40, maxBarWidth, 24);
+
+    // Helper to draw arrow
+    function drawArrow(x, y, angle, alpha) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+        ctx.fillStyle = 'rgba(255, 0, 0, ' + alpha + ')';
+        ctx.beginPath();
+        // Draw a chevron/arrow pointing 'forward' (right in this orientation)
+        ctx.moveTo(20, 0);
+        ctx.lineTo(-20, -20);
+        ctx.lineTo(-10, 0);
+        ctx.lineTo(-20, 20);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // Draw Damage Indicators
+    for (var i = 0; i < player.damageIndicators.length; i++) {
+        var indicator = player.damageIndicators[i];
+        var alpha = indicator.time; // fades out over 1 second
+        if (alpha > 1) alpha = 1;
+        if (alpha < 0) alpha = 0;
+        
+        // Calculate relative angle
+        var relAngle = indicator.angle - player.direction;
+        while (relAngle < -Math.PI) relAngle += Math.PI * 2;
+        while (relAngle > Math.PI) relAngle -= Math.PI * 2;
+        
+        if (relAngle > -Math.PI/4 && relAngle < Math.PI/4) {
+            // Front
+            drawArrow(this.width / 2, 40, -Math.PI/2, alpha);
+        } else if (relAngle >= Math.PI/4 && relAngle <= 3*Math.PI/4) {
+            // Right
+            drawArrow(this.width - 40, this.height / 2, 0, alpha);
+        } else if (relAngle <= -Math.PI/4 && relAngle >= -3*Math.PI/4) {
+            // Left
+            drawArrow(40, this.height / 2, Math.PI, alpha);
+        } else {
+            // Back
+            drawArrow(this.width / 2, this.height - 60, Math.PI/2, alpha);
+        }
+    }
 };
 
 Camera.prototype.drawSky = function(direction, sky, ambient) {
@@ -438,11 +619,19 @@ Camera.prototype.drawColumns = function(player, map, objects) {
 };
 
 
-Camera.prototype.drawWeapon = function(weapon, paces) {
+Camera.prototype.drawWeapon = function(player) {
+    var weapon = player.weapon;
+    var paces = player.paces;
 	var bobX = Math.cos(paces * 2) * this.scale * 6;
 	var bobY = Math.sin(paces * 4) * this.scale * 6;
-	var left = this.width * 0.55 + bobX;
-	var top = this.height * 0.6 + bobY;
+    
+    var attackOffset = 0;
+    if (player.attackTime > 0) {
+        attackOffset = Math.sin(player.attackTime / 0.2 * Math.PI) * 100 * this.scale;
+    }
+
+	var left = this.width * 0.55 + bobX - attackOffset;
+	var top = this.height * 0.6 + bobY + attackOffset * 0.5;
 	this.ctx.drawImage(weapon.image, left, top, weapon.width * this.scale, weapon.height * this.scale);
 };
 
@@ -485,32 +674,34 @@ Camera.prototype.drawMiniMap = function(map, player) {
 	ctx.save();
 
 	for (var i = 0; i < map.objects.length; i++){
-		if(map.objects[i]){
+		if(map.objects[i] && map.objects[i].isExit){
 				ctx.fillStyle = map.objects[i].color || 'blue';
 				ctx.globalAlpha = .8;
-				ctx.fillRect(x + (blockWidth * map.objects[i].x) + blockWidth * .25, y + (blockHeight * map.objects[i].y) + blockWidth * .25, blockWidth * .5, blockHeight * .5);
+                // Fix position: map.objects[i].x is world coordinates. We want to center the rect.
+                var objWidth = blockWidth;
+                var objHeight = blockHeight;
+                var objMapX = x + (blockWidth * map.objects[i].x) - objWidth / 2;
+                var objMapY = y + (blockHeight * map.objects[i].y) - objHeight / 2;
+				ctx.fillRect(objMapX, objMapY, objWidth, objHeight);
 		}
 	}
 	
-		ctx.restore();
+	ctx.restore();
  
 
 	//player triangle
 	ctx.globalAlpha = 1;
 	ctx.fillStyle = '#FF0000';
-	ctx.moveTo(triangleX,triangleY);
 	ctx.translate(triangleX,triangleY);
 	
 	ctx.rotate(player.direction - Math.PI * .5);
 	ctx.beginPath();
-	ctx.lineTo(-2, -3); // bottom left of triangle
-	ctx.lineTo(0, 2); // tip of triangle
-	ctx.lineTo(2,-3); // bottom right of triangle
+	ctx.lineTo(-5, -7); // bottom left of triangle
+	ctx.lineTo(0, 5); // tip of triangle
+	ctx.lineTo(5, -7); // bottom right of triangle
 	ctx.fill();
 
-
 	ctx.restore();
-
 };
 
 Camera.prototype.drawColumn = function(column, ray, angle, map) {
@@ -617,71 +808,194 @@ function Objects(){
 	this.collection = [];
 }
 
-Objects.prototype.update = function(){
+Objects.prototype.update = function(seconds){
+    var aliveObjects = [];
+    var spawnCount = 0;
 	map.objects.forEach(function(item){
-		item.logic && item.logic();
+		item.logic && item.logic(seconds);
+        if (item.dead && item.height <= 0.1) {
+            spawnCount++;
+        } else {
+            aliveObjects.push(item);
+        }
 	});
+    map.objects = aliveObjects;
+    for (var i = 0; i < spawnCount; i++) {
+        spawnEnemy();
+    }
 }
 
 var display = document.getElementById('display'),
-	player = new Player(15.3, -1.2, Math.PI * 0.3),
+	player = new Player(15.5, 15.5, Math.PI * 0.3),
 	map = new Map(32),
 	objects = new Objects(),
 	controls = new Controls(),
 	camera = new Camera(display, MOBILE ? 160 : 320, Math.PI * .4),
 	loop = new GameLoop();
 
-map.wallGrid[15] = 1;
-map.wallGrid[17] = 1;
+function generateLevel() {
+    for (var i = 0; i < map.size * map.size; i++) map.wallGrid[i] = 1;
+    map.objects = [];
 
-map.wallGrid[15 + 32] = 1;
-//map.wallGrid[16 + 32] = 1;
-map.wallGrid[17 + 32] = 1;
+    var stack = [];
+    var startX = 1;
+    var startY = 1;
+    map.wallGrid[startY * map.size + startX] = 0;
+    stack.push({x: startX, y: startY});
 
+    var maxDist = 0;
+    var endX = 1, endY = 1;
 
-map.addObject({
-	color: 'brown',
-	texture: new Bitmap('img/cowboy.png', 639, 1500),
-	height: .7,
-	width: .225,
-	floorOffset: 0,
-	speed: .1,
-	logic: badGuyLogic()
-},16.5,0.5);
+    while (stack.length > 0) {
+        var current = stack[stack.length - 1];
+        var neighbors = [];
+        var dirs = [[0, -2], [2, 0], [0, 2], [-2, 0]];
+        
+        for (var i = 0; i < dirs.length; i++) {
+            var nx = current.x + dirs[i][0];
+            var ny = current.y + dirs[i][1];
+            if (nx > 0 && nx < map.size - 1 && ny > 0 && ny < map.size - 1) {
+                if (map.wallGrid[ny * map.size + nx] === 1) {
+                    neighbors.push({x: nx, y: ny, dx: dirs[i][0]/2, dy: dirs[i][1]/2});
+                }
+            }
+        }
 
-map.addObject({
-	color: 'green',
-	texture: new Bitmap('img/cowboy.png', 639, 1500),
-	height: .7,
-	width: .225,
-	floorOffset: 0,
-	speed: .1,
-	logic: badGuyLogic()
-},16.5,2);
+        if (neighbors.length > 0) {
+            var next = neighbors[Math.floor(Math.random() * neighbors.length)];
+            map.wallGrid[(current.y + next.dy) * map.size + (current.x + next.dx)] = 0;
+            map.wallGrid[next.y * map.size + next.x] = 0;
+            stack.push(next);
+            if (stack.length > maxDist) {
+                maxDist = stack.length;
+                endX = next.x;
+                endY = next.y;
+            }
+        } else {
+            stack.pop();
+        }
+    }
 
-// setInterval(function(){
-// 	map.objects[0].x +=.01;
-// 	//map.objects[0].height +=.01;
-// },10)
+    // Carve a few random loops
+    for (var i = 0; i < 20; i++) {
+        var rx = Math.floor(Math.random() * (map.size - 2)) + 1;
+        var ry = Math.floor(Math.random() * (map.size - 2)) + 1;
+        map.wallGrid[ry * map.size + rx] = 0;
+    }
 
-function badGuyLogic(base){
+    player.x = startX + 0.5;
+    player.y = startY + 0.5;
 
-	return function(){
+    // Spawn exit object (a golden cowboy acting as a portal)
+    map.addObject({
+        color: 'gold',
+        texture: new Bitmap('img/cowboy.png', 639, 1500),
+        height: 1.0,
+        width: 0.5,
+        floorOffset: 0,
+        isExit: true
+    }, endX + 0.5, endY + 0.5);
+
+    for (var i = 0; i < 8; i++) spawnEnemy();
+}
+
+function spawnEnemy() {
+    var spawned = false;
+    while (!spawned) {
+        var ex = Math.floor(Math.random() * (map.size - 2)) + 1;
+        var ey = Math.floor(Math.random() * (map.size - 2)) + 1;
+        if (map.get(ex, ey) === 0) {
+            map.addObject({
+                color: 'brown',
+                texture: new Bitmap('img/cowboy.png', 639, 1500),
+                height: .7,
+                width: .225,
+                floorOffset: 0,
+                speed: 1.5,
+                logic: badGuyLogic()
+            }, ex + 0.5, ey + 0.5);
+            spawned = true;
+        }
+    }
+}
+
+generateLevel();
+
+function badGuyLogic(){
+    function hasLineOfSight(x1, y1, x2, y2, map) {
+        var dx = x2 - x1;
+        var dy = y2 - y1;
+        var dist = Math.sqrt(dx*dx + dy*dy);
+        var steps = Math.ceil(dist * 2);
+        for (var i = 1; i < steps; i++) {
+            var cx = x1 + dx * (i / steps);
+            var cy = y1 + dy * (i / steps);
+            if (map.get(cx, cy) > 0) return false;
+        }
+        return true;
+    }
+
+	return function(seconds){
 		var self = this;
+        
+        if (self.dead) {
+            if (self.height > 0.1) {
+                self.height = Math.max(0.1, self.height - 2 * seconds); // fall over
+            }
+            return;
+        }
 
-		//console.log('logic!')
+        var dx = player.x - self.x;
+        var dy = player.y - self.y;
+        var dist = Math.sqrt(dx*dx + dy*dy);
+        self.distanceFromPlayer = dist;
+        
+        if (self.attackCooldown === undefined) self.attackCooldown = 0;
+        if (self.attackCooldown > 0) self.attackCooldown -= seconds;
 
-		if(self.distanceFromPlayer < 4){
-			//this.x += this.speed * Math.cos(this.render.angleToPlayer);
-			//this.y += this.speed * Math.sin(this.render.angleToPlayer);
-		}
+        var pad = 0.3; // padding to prevent walking on walls
+
+		if(dist < 12 && dist > 1.5){
+            // Chase
+            var angle = Math.atan2(dy, dx);
+            var moveX = self.speed * seconds * Math.cos(angle);
+            var moveY = self.speed * seconds * Math.sin(angle);
+            var signX = moveX > 0 ? pad : -pad;
+            var signY = moveY > 0 ? pad : -pad;
+            if (map.get(self.x + moveX + signX, self.y) <= 0) self.x += moveX;
+            if (map.get(self.x, self.y + moveY + signY) <= 0) self.y += moveY;
+		} else if (dist <= 1.5) {
+            // Attack!
+            if (self.attackCooldown <= 0 && hasLineOfSight(self.x, self.y, player.x, player.y, map)) {
+                self.attackCooldown = 1.0; // 1 attack per second
+                var angleToPlayer = Math.atan2(-dy, -dx); // Angle FROM player TO enemy
+                player.takeDamage(10, angleToPlayer);
+            }
+        } else if (dist >= 12) {
+            // Patrol randomly
+            if (self.patrolTimer === undefined || self.patrolTimer <= 0) {
+                self.patrolAngle = Math.random() * Math.PI * 2;
+                self.patrolTimer = Math.random() * 3 + 1;
+            }
+            self.patrolTimer -= seconds;
+            var moveX = self.speed * 0.5 * seconds * Math.cos(self.patrolAngle);
+            var moveY = self.speed * 0.5 * seconds * Math.sin(self.patrolAngle);
+            var signX = moveX > 0 ? pad : -pad;
+            var signY = moveY > 0 ? pad : -pad;
+            
+            var moved = false;
+            if (map.get(self.x + moveX + signX, self.y) <= 0) { self.x += moveX; moved = true; }
+            if (map.get(self.x, self.y + moveY + signY) <= 0) { self.y += moveY; moved = true; }
+            if (!moved) {
+                self.patrolTimer = 0; // Turn around if stuck
+            }
+        }
 	};
 }
 
-
 loop.start(function frame(seconds) {
 	map.update(seconds);
-	objects.update();
+	objects.update(seconds);
 	player.update(controls.states, map, seconds);
 	camera.render(player, map, objects);
 });
@@ -693,8 +1007,11 @@ window.addEventListener('resize', function(){
 	camera.fullscreen = fullscreen;
 });
 
-function removeInstructions(){
+function toggleInstructions(){
 	var instructions = document.getElementById('instructions');
-	instructions.parentNode.removeChild(instructions);
-
+    if (instructions.style.display === 'none') {
+        instructions.style.display = 'block';
+    } else {
+        instructions.style.display = 'none';
+    }
 }
