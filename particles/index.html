@@ -1,91 +1,14 @@
-<html>
-  <head>
-    <title>Particles Demo</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  </head>
-  <body style='background: #000'>
-    <canvas id='display' width='1' height='1' />
-
-    <script>
-
-      var DAMPING = 0.999;
-
-      function Particle(x, y) {
-        this.x = this.oldX = x;
-        this.y = this.oldY = y;
-      }
-
-      Particle.prototype.integrate = function() {
-        var velocityX = (this.x - this.oldX) * DAMPING;
-        var velocityY = (this.y - this.oldY) * DAMPING;
-        this.oldX = this.x;
-        this.oldY = this.y;
-        this.x += velocityX;
-        this.y += velocityY;
-      };
-
-      Particle.prototype.attract = function(x, y, repel) {
-        var dx = x - this.x;
-        var dy = y - this.y;
-        var distance = Math.sqrt(dx * dx + dy * dy) || 1;
-        var force = repel ? -5 : 1;
-        this.x += (dx / distance) * force;
-        this.y += (dy / distance) * force;
-      };
-
-      Particle.prototype.draw = function(ctx) {
-        var velocity = Math.sqrt(Math.pow(this.x - this.oldX, 2) + Math.pow(this.y - this.oldY, 2));
-        var hue = (velocity * 30 + 200) % 360; // Blue to purple/pink
-        ctx.strokeStyle = 'hsl(' + hue + ', 100%, 60%)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(this.oldX, this.oldY);
-        ctx.lineTo(this.x, this.y);
-        ctx.stroke();
-      };
-
-      var display = document.getElementById('display');
-      var ctx = display.getContext('2d');
-      var particles = [];
-      var width = display.width = window.innerWidth;
-      var height = display.height = window.innerHeight;
-      var mouse = { x: width * 0.5, y: height * 0.5 };
-      var isRepelling = false;
-
-      for (var i = 0; i < 300; i++) {
-        particles[i] = new Particle(Math.random() * width, Math.random() * height);
-      }
-
-      display.addEventListener('mousemove', onMousemove);
-      display.addEventListener('mousedown', function() { isRepelling = true; });
-      display.addEventListener('mouseup', function() { isRepelling = false; });
-      display.addEventListener('touchstart', function(e) { isRepelling = true; onMousemove(e.touches[0]); });
-      display.addEventListener('touchend', function() { isRepelling = false; });
-      display.addEventListener('touchmove', function(e) { onMousemove(e.touches[0]); });
-
-      function onMousemove(e) {
-        mouse.x = e.clientX;
-        mouse.y = e.clientY;
-      }
-
-      ctx.globalCompositeOperation = 'screen';
-      requestAnimationFrame(frame);
-
-      function frame() {
-        requestAnimationFrame(frame);
-        // Clear with slight opacity for trails
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-        ctx.fillRect(0, 0, width, height);
-        ctx.globalCompositeOperation = 'screen';
-        
-        for (var i = 0; i < particles.length; i++) {
-          particles[i].attract(mouse.x, mouse.y, isRepelling);
-          particles[i].integrate();
-          particles[i].draw(ctx);
-        }
-      }
-
-    </script>
-  </body>
-</html>
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#050612"><meta name="description" content="An interactive luminous particle field."><title>Gravity Field — Playful.js</title>
+<style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050612;color:#fff;font-family:system-ui,sans-serif}canvas{display:block;width:100%;height:100%;touch-action:none}.ui{position:fixed;left:max(18px,env(safe-area-inset-left));top:max(18px,env(safe-area-inset-top));pointer-events:none}.ui a{pointer-events:auto;display:inline-grid;place-items:center;width:40px;height:40px;border:1px solid #ffffff30;border-radius:50%;background:#090b18aa;color:#fff;text-decoration:none;backdrop-filter:blur(8px)}h1{margin:22px 0 3px;font-size:clamp(1.6rem,5vw,3rem);letter-spacing:-.05em}.ui p{margin:0;color:#aeb6d2;font-size:.82rem}.badge{color:#9e8cff;font:800 .67rem ui-monospace;letter-spacing:.15em}.tip{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:8px 14px;background:#070916aa;border:1px solid #ffffff20;border-radius:99px;color:#bbc2d8;font-size:.72rem;pointer-events:none;white-space:nowrap}@media(prefers-reduced-motion:reduce){.tip{display:none}}</style></head>
+<body><canvas id="display" aria-label="Interactive particle field"></canvas><div class="ui"><a href="../" aria-label="Back to gallery">←</a><h1>Gravity Field</h1><p><span class="badge">300 PARTICLES</span> · Follow your pointer</p></div><div class="tip">Press and hold to repel · Double-click to scatter</div>
+<script>
+'use strict';
+const canvas=document.getElementById('display'),ctx=canvas.getContext('2d',{alpha:false});let w,h,dpr,particles=[],pointer={x:0,y:0,down:false,active:false},last=0;
+function resize(){dpr=Math.min(devicePixelRatio||1,2);w=innerWidth;h=innerHeight;canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);if(!pointer.active){pointer.x=w/2;pointer.y=h/2}if(!particles.length)for(let i=0;i<Math.min(420,Math.max(180,w*h/3500));i++)particles.push({x:Math.random()*w,y:Math.random()*h,px:Math.random()*w,py:Math.random()*h});}
+function locate(e){const r=canvas.getBoundingClientRect();pointer.x=e.clientX-r.left;pointer.y=e.clientY-r.top;pointer.active=true}
+canvas.addEventListener('pointermove',locate,{passive:true});canvas.addEventListener('pointerdown',e=>{locate(e);pointer.down=true;canvas.setPointerCapture(e.pointerId)});canvas.addEventListener('pointerup',()=>pointer.down=false);canvas.addEventListener('pointercancel',()=>pointer.down=false);canvas.addEventListener('dblclick',()=>particles.forEach(p=>{p.px=p.x+(Math.random()-.5)*60;p.py=p.y+(Math.random()-.5)*60}));addEventListener('resize',resize);resize();
+function frame(t){requestAnimationFrame(frame);if(document.hidden)return;const dt=Math.min(2,(t-last)/16.67||1);last=t;ctx.globalCompositeOperation='source-over';ctx.fillStyle='rgba(5,6,18,.18)';ctx.fillRect(0,0,w,h);ctx.globalCompositeOperation='lighter';for(const p of particles){let vx=(p.x-p.px)*.985,vy=(p.y-p.py)*.985,dx=pointer.x-p.x,dy=pointer.y-p.y,dist=Math.hypot(dx,dy)||1,force=(pointer.down?-5.2:1.05)*dt;p.px=p.x;p.py=p.y;p.x+=vx+(dx/dist)*force;p.y+=vy+(dy/dist)*force;if(p.x<-30||p.x>w+30||p.y<-30||p.y>h+30){p.x=Math.max(0,Math.min(w,p.x));p.y=Math.max(0,Math.min(h,p.y));p.px=p.x;p.py=p.y}const speed=Math.min(20,Math.hypot(vx,vy));ctx.strokeStyle=`hsla(${205+speed*6},100%,68%,${.3+speed/30})`;ctx.lineWidth=1.2+speed/10;ctx.beginPath();ctx.moveTo(p.px,p.py);ctx.lineTo(p.x,p.y);ctx.stroke()}}
+requestAnimationFrame(frame);
+</script></body></html>
