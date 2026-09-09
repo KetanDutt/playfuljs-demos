@@ -1,35 +1,35 @@
 var CIRCLE = Math.PI * 2;
-var MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry/i.test(navigator.userAgent);
+var MOBILE = matchMedia('(pointer: coarse)').matches;
+var muted = false;
+var audioCtx = null;
 
-var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-function playStepSound() {
+function sound(kind) {
+    if (muted) return;
+    var AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    audioCtx = audioCtx || new AudioContext();
     if (audioCtx.state === 'suspended') audioCtx.resume();
+    var now = audioCtx.currentTime;
     var osc = audioCtx.createOscillator();
-    var gainNode = audioCtx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(100, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.1);
-    gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-    osc.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.1);
+    var gain = audioCtx.createGain();
+    var settings = {
+        step: [85, 48, 0.045, 0.07, 'triangle'],
+        swing: [210, 55, 0.14, 0.16, 'sawtooth'],
+        hit: [120, 38, 0.18, 0.12, 'square'],
+        hurt: [95, 42, 0.16, 0.2, 'sawtooth'],
+        portal: [280, 760, 0.16, 0.45, 'sine']
+    }[kind] || [100, 80, 0.05, 0.1, 'sine'];
+    osc.type = settings[4];
+    osc.frequency.setValueAtTime(settings[0], now);
+    osc.frequency.exponentialRampToValueAtTime(settings[1], now + settings[3]);
+    gain.gain.setValueAtTime(settings[2], now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + settings[3]);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(now); osc.stop(now + settings[3]);
 }
-function playSwingSound() {
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    var osc = audioCtx.createOscillator();
-    var gainNode = audioCtx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(200, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15);
-    gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-    osc.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.15);
-}
+function playStepSound() { sound('step'); }
+function playSwingSound() { sound('swing'); }
+
 function Controls() {
 	this.codes = {
 		37: 'left', // left arrow
@@ -38,8 +38,10 @@ function Controls() {
 		40: 'backward', // down arrow
 		65: 'left', // a
 		68: 'right', // d
-		87: 'forward', //w 
-		83: 'backward' // s
+		87: 'forward', //w
+		83: 'backward', // s
+        81: 'left', // q
+        69: 'right' // e
 
 	}
 	this.states = {
@@ -58,9 +60,7 @@ function Controls() {
 		}
 	});
     document.addEventListener('mousedown', function(e){
-        if (player) {
-            player.attack();
-        }
+        if (player && e.button === 0 && e.target === display && !isPaused) player.attack();
     });
 	//document.addEventListener('touchstart', this.onTouch.bind(this), false);
 	//document.addEventListener('touchmove', this.onTouch.bind(this), false);
@@ -97,9 +97,9 @@ Controls.prototype.onKey = function(val, e) {
 
 Controls.prototype.onMouse = function(player,vals){
 	var maxSpeed = 1000, // fastest possible mouse speed
-			speed = Math.min(vals.x, maxSpeed) / maxSpeed,
+			speed = Math.max(-maxSpeed, Math.min(vals.x, maxSpeed)) / maxSpeed,
 			amount = Math.PI * speed;
-	
+
 	if(player.direction > CIRCLE){
 		amount -= CIRCLE;
 	} else if(player.direction < 0){
@@ -110,11 +110,12 @@ Controls.prototype.onMouse = function(player,vals){
 
 };
 
+var imageCache = Object.create(null);
 function Bitmap(src, width, height) {
-	this.image = new Image();
-	this.image.src = src;
-	this.width = width;
-	this.height = height;
+    this.image = imageCache[src] || (imageCache[src] = new Image());
+    if (!this.image.src) this.image.src = src;
+    this.width = width;
+    this.height = height;
 }
 
 function Player(x, y, direction) {
@@ -126,23 +127,28 @@ function Player(x, y, direction) {
     this.maxHealth = 100;
     this.health = this.maxHealth;
     this.damageIndicators = [];
+    this.attackTime = 0;
+    this.hitFlash = 0;
 	this.inventory = [
 		new Bitmap('img/goo_hand.png', 320, 332),
 		new Bitmap('img/knife_hand.png', 319, 320)
 	];
 	this.weapon = this.inventory[0];
-	
+
 	this.paces = 0;
 }
 
 Player.prototype.takeDamage = function(amount, angle) {
     this.health -= amount;
+    this.hitFlash = 0.35;
+    sound('hurt');
     this.damageIndicators.push({ angle: angle, time: 1.0 });
-    
+
     // Play a hurt sound here if we wanted
     if (this.health <= 0) {
         this.health = this.maxHealth;
-        generateLevel(); // Restart level on death
+        showToast('You were overwhelmed — maze reset');
+        generateLevel(true); // Restart level on death
     }
 };
 
@@ -155,7 +161,7 @@ Player.prototype.walk = function(distance, angle, map) {
 	var dy = Math.sin(this.direction + angle) * distance;
 	if (map.get(this.x + dx, this.y) <= 0) this.x += dx;
 	if (map.get(this.x, this.y + dy) <= 0) this.y += dy;
-    
+
     var oldPaces = this.paces;
 	this.paces += distance;
     if (Math.floor(oldPaces * 2) !== Math.floor(this.paces * 2)) {
@@ -167,14 +173,14 @@ Player.prototype.attack = function() {
     if (this.attackTime > 0) return;
     this.attackTime = 0.2;
     playSwingSound();
-    
+
     for (var i = 0; i < map.objects.length; i++) {
         var obj = map.objects[i];
-        if (obj && !obj.dead) {
+        if (obj && obj.isEnemy && !obj.dead) {
             var dx = obj.x - this.x;
             var dy = obj.y - this.y;
             var dist = Math.sqrt(dx*dx + dy*dy);
-            
+
             // Calculate angle to enemy to ensure they are somewhat in front
             var angleToEnemy = Math.atan2(dy, dx);
             var angleDiff = Math.abs(this.direction - angleToEnemy);
@@ -184,7 +190,10 @@ Player.prototype.attack = function() {
 
             if (dist < 2.5 && angleDiff < Math.PI / 4) {
                 obj.dead = true;
-                // Add a hit sound?
+                player.kills++;
+                player.hitFlash = -0.18;
+                sound('hit');
+                showToast('Enemy down');
             }
         }
     }
@@ -192,12 +201,12 @@ Player.prototype.attack = function() {
 
 Player.prototype.update = function(controls, map, seconds) {
 
-	var speed = controls.running && player.stamina > 0 ?  3 : 1.5;
+	var speed = controls.running && this.stamina > 0 ? 3.2 : 1.55;
 
 	if (controls.forward) this.walk(speed * seconds, 0,map);
 	if (controls.backward) this.walk(-speed * seconds, 0,map);
 
-	if(!camera.fullscreen){ //todo: make this not rely on globals
+	if(!document.pointerLockElement){
 		if (controls.left) this.rotate(-Math.PI * seconds);
 		if (controls.right) this.rotate(Math.PI * seconds);
 	} else {
@@ -205,16 +214,15 @@ Player.prototype.update = function(controls, map, seconds) {
 		if (controls.right) this.walk(speed / 2 * seconds, Math.PI * .5 ,map);
 	}
 
-	if(controls.running && player.stamina > -1){
-		player.stamina-=.1;
-	} else if(player.stamina < 10) {
-		player.stamina+=.5;
-	}
+    var moving = controls.forward || controls.backward || controls.left || controls.right;
+    if (controls.running && moving && this.stamina > 0) this.stamina = Math.max(0, this.stamina - 2.8 * seconds);
+    else this.stamina = Math.min(this.maxStamina, this.stamina + 1.4 * seconds);
+    this.hitFlash += (0 - this.hitFlash) * Math.min(1, seconds * 9);
 
     if (this.attackTime > 0) {
         this.attackTime = Math.max(0, this.attackTime - seconds);
     }
-    
+
     // Tick down damage indicators
     for (var i = this.damageIndicators.length - 1; i >= 0; i--) {
         this.damageIndicators[i].time -= seconds;
@@ -230,7 +238,10 @@ Player.prototype.update = function(controls, map, seconds) {
             var dx = obj.x - this.x;
             var dy = obj.y - this.y;
             if (Math.sqrt(dx*dx + dy*dy) < 1) {
-                generateLevel(); // Level cleared, load next maze!
+                sound('portal');
+                player.level++;
+                showToast('Maze escaped — entering level ' + player.level);
+                generateLevel();
                 break;
             }
         }
@@ -246,9 +257,9 @@ function Map(size) {
 	this.wallGrid = new Uint8Array(size * size);
 	this.skybox = new Bitmap('img/deathvalley_panorama.jpg', 4000, 1290);
 	this.wallTexture = new Bitmap('img/wall_texture.jpg', 1024, 1024);
-	this.floorTexture = new Bitmap('img/floor_texture.jpg', 391,392);
 	this.light = 0;
 	this.objects = [];
+    this.generation = 0;
 }
 
 Map.prototype.get = function(x, y) {
@@ -290,7 +301,7 @@ Map.prototype.cast = function(point, angle, range, objects) {
 		var stepY = step(cos, sin, origin.y, origin.x, true);
 		var nextStep = stepX.length2 < stepY.length2 ? inspect(stepX, 1, 0, origin.distance, stepX.y) : inspect(stepY, 0, 1, origin.distance, stepY.x);
 
-		if (nextStep.distance > range) return [origin];    
+		if (nextStep.distance > range) return [origin];
 		return [origin].concat(ray(nextStep));
 	}
 
@@ -336,9 +347,13 @@ function MapObject(object,x,y){
 }
 
 function Camera(canvas, resolution, fov) {
-	this.ctx = canvas.getContext('2d');
-	this.width = canvas.width = window.innerWidth;
-	this.height = canvas.height = window.innerHeight;
+    this.ctx = canvas.getContext('2d', { alpha: false });
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+    this.width = window.innerWidth;
+    this.height = window.innerHeight;
+    canvas.width = Math.round(this.width * this.pixelRatio);
+    canvas.height = Math.round(this.height * this.pixelRatio);
+    this.ctx.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
 	this.resolution = resolution;
 	this.spacing = this.width / resolution;
 	this.fov = fov;
@@ -346,8 +361,6 @@ function Camera(canvas, resolution, fov) {
 	this.lightRange = 5;
 	this.scale = (this.width + this.height) / 1200;
 
-
-	document.addEventListener('keyup', this.onKey.bind(this, false), false);
 
 }
 
@@ -378,66 +391,31 @@ Camera.prototype.render = function(player, map, objects) {
 
 Camera.prototype.drawHUD = function(player) {
     var ctx = this.ctx;
-    
-    // Draw Health Text & Bar
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '24px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('Health:', 20, this.height - 20);
-    
-    var maxBarWidth = 200;
-    var barWidth = (player.health / player.maxHealth) * maxBarWidth;
-    ctx.fillStyle = '#550000';
-    ctx.fillRect(120, this.height - 40, maxBarWidth, 24);
-    ctx.fillStyle = '#ff0000';
-    ctx.fillRect(120, this.height - 40, Math.max(0, barWidth), 24);
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(120, this.height - 40, maxBarWidth, 24);
-
-    // Helper to draw arrow
-    function drawArrow(x, y, angle, alpha) {
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(angle);
-        ctx.fillStyle = 'rgba(255, 0, 0, ' + alpha + ')';
-        ctx.beginPath();
-        // Draw a chevron/arrow pointing 'forward' (right in this orientation)
-        ctx.moveTo(20, 0);
-        ctx.lineTo(-20, -20);
-        ctx.lineTo(-10, 0);
-        ctx.lineTo(-20, 20);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
+    var compact = this.width < 600;
+    var x = 20, y = this.height - (compact ? 68 : 76), w = compact ? 130 : 190;
+    function bar(label, value, max, color, offset) {
+        ctx.fillStyle = 'rgba(4,6,10,.62)'; ctx.fillRect(x, y + offset, w, 13);
+        ctx.fillStyle = color; ctx.fillRect(x, y + offset, w * Math.max(0, value / max), 13);
+        ctx.fillStyle = '#fff'; ctx.font = '700 10px ui-monospace, monospace'; ctx.textAlign = 'left';
+        ctx.fillText(label, x, y + offset - 5);
     }
-
-    // Draw Damage Indicators
+    ctx.save();
+    bar('HEALTH ' + Math.ceil(player.health), player.health, player.maxHealth, '#ef4f5f', 0);
+    bar('STAMINA', player.stamina, player.maxStamina, '#65e0bd', 34);
+    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.9)';
+    ctx.font = '700 12px ui-monospace, monospace';
+    ctx.fillText('LEVEL ' + player.level + '  ·  ' + player.kills + ' KILLS  ·  FIND THE GOLD BEACON', this.width / 2, 28);
+    if (player.hitFlash) {
+        ctx.fillStyle = player.hitFlash > 0 ? 'rgba(255,20,35,' + Math.abs(player.hitFlash) + ')' : 'rgba(255,220,90,' + Math.abs(player.hitFlash) + ')';
+        ctx.fillRect(0, 0, this.width, this.height);
+    }
     for (var i = 0; i < player.damageIndicators.length; i++) {
-        var indicator = player.damageIndicators[i];
-        var alpha = indicator.time; // fades out over 1 second
-        if (alpha > 1) alpha = 1;
-        if (alpha < 0) alpha = 0;
-        
-        // Calculate relative angle
-        var relAngle = indicator.angle - player.direction;
-        while (relAngle < -Math.PI) relAngle += Math.PI * 2;
-        while (relAngle > Math.PI) relAngle -= Math.PI * 2;
-        
-        if (relAngle > -Math.PI/4 && relAngle < Math.PI/4) {
-            // Front
-            drawArrow(this.width / 2, 40, -Math.PI/2, alpha);
-        } else if (relAngle >= Math.PI/4 && relAngle <= 3*Math.PI/4) {
-            // Right
-            drawArrow(this.width - 40, this.height / 2, 0, alpha);
-        } else if (relAngle <= -Math.PI/4 && relAngle >= -3*Math.PI/4) {
-            // Left
-            drawArrow(40, this.height / 2, Math.PI, alpha);
-        } else {
-            // Back
-            drawArrow(this.width / 2, this.height - 60, Math.PI/2, alpha);
-        }
+        var indicator = player.damageIndicators[i], rel = indicator.angle - player.direction;
+        ctx.save(); ctx.translate(this.width / 2, this.height / 2); ctx.rotate(rel);
+        ctx.fillStyle = 'rgba(255,35,45,' + Math.max(0, indicator.time) + ')';
+        ctx.beginPath(); ctx.moveTo(0,-Math.min(this.width,this.height)*.38); ctx.lineTo(-12,-Math.min(this.width,this.height)*.34); ctx.lineTo(12,-Math.min(this.width,this.height)*.34); ctx.fill(); ctx.restore();
     }
+    ctx.restore();
 };
 
 Camera.prototype.drawSky = function(direction, sky, ambient) {
@@ -458,7 +436,7 @@ Camera.prototype.drawSky = function(direction, sky, ambient) {
 };
 
 Camera.prototype.drawSpriteColumn = function(player,map,column,columnProps,sprites) {
-	
+
 	var ctx = this.ctx,
 		left = Math.floor(column * this.spacing),
 		width = Math.ceil(this.spacing),
@@ -499,14 +477,15 @@ Camera.prototype.drawSpriteColumn = function(player,map,column,columnProps,sprit
 
 			var brightness = Math.max(sprite.distanceFromPlayer / this.lightRange - map.light, 0) * 100;
 
-			sprite.texture.image.style.webkitFilter = 'brightness(' + brightness + '%)';
-			sprite.texture.image.style.filter = 'brightness(' + brightness  + '%)';
-			
-			ctx.drawImage(sprite.texture.image, textureX, 0, 1, sprite.texture.height, left, sprite.render.top, width, sprite.render.height);
+            ctx.drawImage(sprite.texture.image, textureX, 0, 1, sprite.texture.height, left, sprite.render.top, width, sprite.render.height);
+            ctx.fillStyle = '#05070a';
+            ctx.globalAlpha = Math.min(0.82, brightness / 125);
+            ctx.fillRect(left, sprite.render.top, width, sprite.render.height);
+            ctx.globalAlpha = 1;
 
 
 
-			
+
 
 			//debugger;
 
@@ -515,7 +494,7 @@ Camera.prototype.drawSpriteColumn = function(player,map,column,columnProps,sprit
 
 		}
 
-		
+
 	};
 
 };
@@ -535,26 +514,28 @@ Camera.prototype.drawSprites = function(player,map,columnProps){
 
 
 	var sprites = Array.prototype.slice.call(map.objects)
+        .filter(function(sprite) { return sprite && (!sprite.dead || sprite.height > 0.1); })
 		.map(function(sprite){
 
 			var distX = sprite.x - player.x,
 				distY = sprite.y - player.y,
-				width = sprite.width * screenWidth / sprite.distanceFromPlayer,
-				height = sprite.height * screenHeight /  sprite.distanceFromPlayer,
-				renderedFloorOffset = sprite.floorOffset / sprite.distanceFromPlayer,
+                distance = Math.max(0.1, Math.sqrt(distX * distX + distY * distY)),
+				width = sprite.width * screenWidth / distance,
+				height = sprite.height * screenHeight / distance,
+				renderedFloorOffset = sprite.floorOffset / distance,
 				angleToPlayer = Math.atan2(distY,distX),
 				angleRelativeToPlayerView = player.direction - angleToPlayer,
-				top = (screenHeight / 2) * (1 + 1 / sprite.distanceFromPlayer) - height;
+				top = (screenHeight / 2) * (1 + 1 / distance) - height;
 
 			if(angleRelativeToPlayerView >= CIRCLE / 2){
-				angleRelativeToPlayerView -= CIRCLE;    
+				angleRelativeToPlayerView -= CIRCLE;
 			}
 
-			var cameraXOffset = ( camera.width / 2 ) - (screenRatio * angleRelativeToPlayerView),
+			var cameraXOffset = ( screenWidth / 2 ) - (screenRatio * angleRelativeToPlayerView),
 				numColumns = width / screenWidth * resolution,
 				firstColumn = Math.floor( (cameraXOffset - width/2 ) / screenWidth * resolution);
 
-			sprite.distanceFromPlayer = Math.sqrt( Math.pow( distX, 2) + Math.pow( distY, 2) );
+            sprite.distanceFromPlayer = distance;
 			sprite.render = {
 				width: width,
 				height: height,
@@ -594,13 +575,7 @@ Camera.prototype.drawSprites = function(player,map,columnProps){
 	this.ctx.restore();
 };
 
-Camera.prototype.setSpriteDistances = function(objects, player){
-	for(i = 0; i < objects.length; i++){
-		obj = objects[i];
-		//if(obj) obj.distanceFromPlayer = 
-	}
-};
-
+Camera.prototype.setSpriteDistances = function() {};
 
 Camera.prototype.drawColumns = function(player, map, objects) {
 	this.ctx.save();
@@ -624,7 +599,7 @@ Camera.prototype.drawWeapon = function(player) {
     var paces = player.paces;
 	var bobX = Math.cos(paces * 2) * this.scale * 6;
 	var bobY = Math.sin(paces * 4) * this.scale * 6;
-    
+
     var attackOffset = 0;
     if (player.attackTime > 0) {
         attackOffset = Math.sin(player.attackTime / 0.2 * Math.PI) * 100 * this.scale;
@@ -638,7 +613,7 @@ Camera.prototype.drawWeapon = function(player) {
 Camera.prototype.drawMiniMap = function(map, player) {
 
 	var ctx = this.ctx,
-		mapWidth = this.width * .25,
+		mapWidth = Math.min(190, this.width * (MOBILE ? .28 : .18)),
 		mapHeight = mapWidth,
 		x = this.width - mapWidth - 20,
 		y = 20,
@@ -685,15 +660,15 @@ Camera.prototype.drawMiniMap = function(map, player) {
 				ctx.fillRect(objMapX, objMapY, objWidth, objHeight);
 		}
 	}
-	
+
 	ctx.restore();
- 
+
 
 	//player triangle
 	ctx.globalAlpha = 1;
 	ctx.fillStyle = '#FF0000';
 	ctx.translate(triangleX,triangleY);
-	
+
 	ctx.rotate(player.direction - Math.PI * .5);
 	ctx.beginPath();
 	ctx.lineTo(-5, -7); // bottom left of triangle
@@ -707,7 +682,6 @@ Camera.prototype.drawMiniMap = function(map, player) {
 Camera.prototype.drawColumn = function(column, ray, angle, map) {
 	var ctx = this.ctx,
 		wallTexture = map.wallTexture,
-		floorTexture = map.floorTexture,
 		left = Math.floor(column * this.spacing),
 		width = Math.ceil(this.spacing),
 		hit = -1,
@@ -775,15 +749,8 @@ Camera.prototype.projectSprite = function(height, distance) {
 };
 
 Camera.prototype.toggleFullscreen = function(){
-	if(this.fullscreen){
-		pointerRelease();
-		this.fullscreen = false;
-	} else {
-		//todo: make this not rely on globals
-		lockPointer(display, controls.onMouse.bind(controls, player));
-		this.fullscreen = true;
-	}
-	
+    if (document.pointerLockElement === display) pointerRelease();
+    else lockPointer(display, controls.onMouse.bind(controls, player));
 };
 
 function GameLoop() {
@@ -800,7 +767,7 @@ GameLoop.prototype.start = function(callback) {
 GameLoop.prototype.frame = function(time) {
 	var seconds = (time - this.lastTime) / 1000;
 	this.lastTime = time;
-	if (seconds < 0.2) this.callback(seconds);
+    if (seconds < 0.2 && !isPaused) this.callback(seconds);
 	requestAnimationFrame(this.frame);
 };
 
@@ -809,6 +776,7 @@ function Objects(){
 }
 
 Objects.prototype.update = function(seconds){
+    var generation = map.generation;
     var aliveObjects = [];
     var spawnCount = 0;
 	map.objects.forEach(function(item){
@@ -819,12 +787,14 @@ Objects.prototype.update = function(seconds){
             aliveObjects.push(item);
         }
 	});
+    if (generation !== map.generation) return;
     map.objects = aliveObjects;
     for (var i = 0; i < spawnCount; i++) {
         spawnEnemy();
     }
 }
 
+var isPaused = true, toastTimer = 0;
 var display = document.getElementById('display'),
 	player = new Player(15.5, 15.5, Math.PI * 0.3),
 	map = new Map(32),
@@ -832,8 +802,12 @@ var display = document.getElementById('display'),
 	controls = new Controls(),
 	camera = new Camera(display, MOBILE ? 160 : 320, Math.PI * .4),
 	loop = new GameLoop();
+player.level = 1; player.kills = 0;
 
-function generateLevel() {
+function generateLevel(fromDeath) {
+    map.generation++;
+    if (fromDeath) player.kills = Math.max(0, player.kills - 2);
+    player.health = player.maxHealth; player.stamina = player.maxStamina;
     for (var i = 0; i < map.size * map.size; i++) map.wallGrid[i] = 1;
     map.objects = [];
 
@@ -850,7 +824,7 @@ function generateLevel() {
         var current = stack[stack.length - 1];
         var neighbors = [];
         var dirs = [[0, -2], [2, 0], [0, 2], [-2, 0]];
-        
+
         for (var i = 0; i < dirs.length; i++) {
             var nx = current.x + dirs[i][0];
             var ny = current.y + dirs[i][1];
@@ -900,13 +874,14 @@ function generateLevel() {
 }
 
 function spawnEnemy() {
-    var spawned = false;
-    while (!spawned) {
+    var spawned = false, attempts = 0;
+    while (!spawned && attempts++ < 200) {
         var ex = Math.floor(Math.random() * (map.size - 2)) + 1;
         var ey = Math.floor(Math.random() * (map.size - 2)) + 1;
-        if (map.get(ex, ey) === 0) {
+        if (map.get(ex, ey) === 0 && Math.hypot(ex - player.x, ey - player.y) > 6) {
             map.addObject({
                 color: 'brown',
+                isEnemy: true,
                 texture: new Bitmap('img/cowboy.png', 639, 1500),
                 height: .7,
                 width: .225,
@@ -937,7 +912,7 @@ function badGuyLogic(){
 
 	return function(seconds){
 		var self = this;
-        
+
         if (self.dead) {
             if (self.height > 0.1) {
                 self.height = Math.max(0.1, self.height - 2 * seconds); // fall over
@@ -949,7 +924,7 @@ function badGuyLogic(){
         var dy = player.y - self.y;
         var dist = Math.sqrt(dx*dx + dy*dy);
         self.distanceFromPlayer = dist;
-        
+
         if (self.attackCooldown === undefined) self.attackCooldown = 0;
         if (self.attackCooldown > 0) self.attackCooldown -= seconds;
 
@@ -982,7 +957,7 @@ function badGuyLogic(){
             var moveY = self.speed * 0.5 * seconds * Math.sin(self.patrolAngle);
             var signX = moveX > 0 ? pad : -pad;
             var signY = moveY > 0 ? pad : -pad;
-            
+
             var moved = false;
             if (map.get(self.x + moveX + signX, self.y) <= 0) { self.x += moveX; moved = true; }
             if (map.get(self.x, self.y + moveY + signY) <= 0) { self.y += moveY; moved = true; }
@@ -999,19 +974,38 @@ loop.start(function frame(seconds) {
 	player.update(controls.states, map, seconds);
 	camera.render(player, map, objects);
 });
-// rebuild camera on resize, retain fullscreen property
-// somewhat hacky, and duplicates code
+// Resize without registering duplicate keyboard listeners.
+var resizeTimer;
 window.addEventListener('resize', function(){
-	var fullscreen = camera.fullscreen;
-	camera = new Camera(display, MOBILE ? 160 : 320, Math.PI * .4);
-	camera.fullscreen = fullscreen;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function(){ camera = new Camera(display, MOBILE ? 150 : Math.min(420, Math.ceil(innerWidth / 4)), Math.PI * .4); }, 100);
 });
 
-function toggleInstructions(){
-	var instructions = document.getElementById('instructions');
-    if (instructions.style.display === 'none') {
-        instructions.style.display = 'block';
-    } else {
-        instructions.style.display = 'none';
-    }
+function showToast(message) {
+    var el = document.getElementById('toast');
+    el.textContent = message; el.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 1800);
 }
+function setPaused(value) {
+    isPaused = value;
+    document.getElementById('instructions').classList.toggle('show', value);
+    if (!value) { loop.lastTime = performance.now(); showToast('Find the golden beacon'); }
+}
+function toggleInstructions(){ setPaused(!isPaused); }
+
+document.getElementById('play').addEventListener('click', function(){ setPaused(false); });
+document.getElementById('help').addEventListener('click', function(){ setPaused(true); });
+document.getElementById('mute').addEventListener('click', function(e){ muted = !muted; e.currentTarget.textContent = muted ? '×' : '♪'; showToast(muted ? 'Sound muted' : 'Sound on'); });
+document.addEventListener('keydown', function(e){
+    if (e.code === 'KeyF') camera.toggleFullscreen();
+    if (e.code === 'Escape') setTimeout(function(){ if (!document.pointerLockElement) setPaused(true); }, 0);
+});
+document.addEventListener('visibilitychange', function(){ if (document.hidden) setPaused(true); });
+
+document.querySelectorAll('[data-control]').forEach(function(button){
+    var state = button.dataset.control;
+    function down(e){ e.preventDefault(); controls.states[state] = true; }
+    function up(e){ e.preventDefault(); controls.states[state] = false; }
+    button.addEventListener('pointerdown', down); button.addEventListener('pointerup', up); button.addEventListener('pointercancel', up); button.addEventListener('pointerleave', up);
+});
+document.querySelector('[data-action="attack"]').addEventListener('pointerdown', function(e){ e.preventDefault(); if (!isPaused) player.attack(); });

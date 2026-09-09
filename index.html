@@ -1,10 +1,25 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta http-equiv="refresh" content="0; url=raycaster/index.html" />
-    <title>Redirecting to Raycaster...</title>
-  </head>
-  <body>
-    <p>Redirecting to the <a href="raycaster/index.html">Raycaster demo</a>...</p>
-  </body>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A collection of dependency-free canvas experiments: a raycaster, procedural terrain and particle simulations.">
+  <meta name="theme-color" content="#080b16">
+  <title>Playful.js — Canvas Lab</title>
+  <style>
+    :root{color-scheme:dark;--ink:#f4f7ff;--muted:#9ca8c7;--panel:rgba(20,27,49,.72);--line:rgba(255,255,255,.12);--accent:#78f6d2}*{box-sizing:border-box}body{margin:0;min-height:100vh;font:16px/1.6 system-ui,-apple-system,sans-serif;color:var(--ink);background:#080b16;overflow-x:hidden}body:before{content:"";position:fixed;inset:-30%;z-index:-1;background:radial-gradient(circle at 25% 30%,#24346c 0,transparent 32%),radial-gradient(circle at 80% 10%,#324b47 0,transparent 26%);animation:drift 18s ease-in-out infinite alternate}@keyframes drift{to{transform:translate3d(3%,-2%,0) scale(1.08)}}main{width:min(1120px,calc(100% - 32px));margin:auto;padding:72px 0}header{max-width:760px;margin-bottom:48px}.eyebrow{color:var(--accent);font-weight:800;letter-spacing:.18em;text-transform:uppercase;font-size:.75rem}h1{font-size:clamp(3rem,9vw,6.5rem);line-height:.9;letter-spacing:-.06em;margin:.2em 0}.lead{color:var(--muted);font-size:clamp(1rem,2vw,1.25rem)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.card{position:relative;min-height:250px;padding:28px;border:1px solid var(--line);border-radius:24px;background:var(--panel);backdrop-filter:blur(14px);color:inherit;text-decoration:none;overflow:hidden;transition:transform .3s cubic-bezier(.2,.8,.2,1),border-color .3s,box-shadow .3s}.card:hover,.card:focus-visible{transform:translateY(-7px);border-color:color-mix(in srgb,var(--tone),white 25%);box-shadow:0 28px 70px rgba(0,0,0,.3)}.card:after{content:"";position:absolute;width:220px;height:220px;right:-70px;bottom:-100px;border-radius:50%;background:var(--tone);filter:blur(8px);opacity:.22;transition:transform .5s}.card:hover:after{transform:scale(1.25)}.number{font:700 .75rem ui-monospace,monospace;color:var(--tone)}h2{font-size:1.8rem;margin:42px 0 8px;letter-spacing:-.03em}.card p{margin:0;color:var(--muted);max-width:72%}.launch{position:absolute;right:24px;top:22px;font-size:1.4rem}footer{margin-top:42px;color:var(--muted);font-size:.9rem}@media(max-width:680px){main{padding:40px 0}.grid{grid-template-columns:1fr}.card{min-height:220px}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+  </style>
+</head>
+<body>
+<main>
+  <header><div class="eyebrow">Creative coding collection</div><h1>Playful.js</h1><p class="lead">Four tiny, fast, dependency-free experiments exploring procedural worlds, particles and old-school 3D—all running directly in your browser.</p></header>
+  <section class="grid" aria-label="Demos">
+    <a class="card" style="--tone:#ffb45c" href="raycaster/"><span class="number">01 / GAME</span><span class="launch" aria-hidden="true">↗</span><h2>Maze Runner</h2><p>Escape a shifting pseudo-3D labyrinth while hostile wanderers close in.</p></a>
+    <a class="card" style="--tone:#78f6d2" href="terrain/"><span class="number">02 / GENERATIVE</span><span class="launch" aria-hidden="true">↗</span><h2>Terrain</h2><p>Generate and explore isometric islands built with diamond-square noise.</p></a>
+    <a class="card" style="--tone:#9e8cff" href="particles/"><span class="number">03 / INTERACTIVE</span><span class="launch" aria-hidden="true">↗</span><h2>Gravity Field</h2><p>Pull a luminous particle swarm—or press to push it away.</p></a>
+    <a class="card" style="--tone:#62bfff" href="particles2/"><span class="number">04 / PHYSICS</span><span class="launch" aria-hidden="true">↗</span><h2>Fountain</h2><p>A colorful Verlet fountain with gravity, trails and elastic collisions.</p></a>
+  </section>
+  <footer>Built with Canvas 2D and vanilla JavaScript. No frameworks, trackers, or external assets.</footer>
+</main>
+</body>
 </html>
