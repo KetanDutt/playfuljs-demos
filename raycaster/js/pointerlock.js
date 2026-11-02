@@ -1,15 +1,20 @@
-/* Small standards-based Pointer Lock helper. */
+/* Standards-based Pointer Lock helper; keep exactly one active listener. */
 (function () {
   'use strict';
+  var activeElement = null;
+  var moveHandler = null;
+  function move(event) {
+    if (moveHandler && document.pointerLockElement === activeElement) {
+      moveHandler({ x: event.movementX || 0, y: event.movementY || 0 });
+    }
+  }
+  document.addEventListener('mousemove', move);
   window.lockPointer = function (element, onMove) {
     if (!element || !element.requestPointerLock) return false;
-    element.requestPointerLock();
-    function move(event) { onMove({ x: event.movementX || 0, y: event.movementY || 0 }); }
-    function change() {
-      document.removeEventListener('mousemove', move);
-      if (document.pointerLockElement === element) document.addEventListener('mousemove', move);
-    }
-    document.addEventListener('pointerlockchange', change, { passive: true });
+    activeElement = element;
+    moveHandler = onMove;
+    var request = element.requestPointerLock();
+    if (request && request.catch) request.catch(function () {});
     return true;
   };
   window.pointerRelease = function () {

@@ -10,7 +10,7 @@ A production-ready collection of dependency-free Canvas 2D experiments. The proj
 | --- | --- | --- |
 | [Maze Runner](./raycaster/) | Procedural pseudo-3D maze survival game | WASD/arrows, Shift, click, I, F, Esc |
 | [Terrain](./terrain/) | Diamond-square isometric island generator | Select **New island** |
-| [Gravity Field](./particles/) | Interactive luminous particle simulation | Point to attract, hold to repel |
+| [Gravity Field](./particles/) | Interactive luminous particle simulation | Point to attract, hold to repel; pause/resume |
 | [Fountain](./particles2/) | Verlet physics fountain | Tap to move emitter; pause/resume |
 
 ## Highlights
@@ -18,7 +18,8 @@ A production-ready collection of dependency-free Canvas 2D experiments. The proj
 - Responsive high-DPI rendering with capped pixel ratios
 - Keyboard, mouse, touch, and pointer controls
 - Procedural maze and terrain generation
-- Synthesized Web Audio sound effects (no audio downloads)
+- Synthesized Web Audio sound effects and in-game feedback (no audio downloads)
+- Touch sprint and weapon switching in Maze Runner; pause controls for both particle demos
 - Pause-on-hidden behavior and reduced-motion-aware UI
 - Accessible labels, semantic overlays, and mobile-safe layouts
 - Zero third-party dependencies
@@ -32,7 +33,7 @@ python3 -m http.server 8000
 # Open http://localhost:8000
 ```
 
-There is no install or build command. Changes appear after a refresh.
+There is no install or build command. Changes appear after a refresh. Run the dependency-free checks with `python3 scripts/check_static.py` and `node tests/game.test.js` (Node.js is only needed for the gameplay checks).
 
 ## Project layout
 

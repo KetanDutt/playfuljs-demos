@@ -22,8 +22,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check static asset references
         run: python3 scripts/check_static.py
-      - name: Check raycaster syntax
-        run: node --check raycaster/js/game.js
+      - name: Check raycaster syntax and gameplay regressions
+        run: |
+          node --check raycaster/js/game.js
+          node --check raycaster/js/pointerlock.js
+          node tests/game.test.js
 
   deploy:
     if: github.event_name != 'pull_request'
