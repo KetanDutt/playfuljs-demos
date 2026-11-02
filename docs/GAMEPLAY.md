@@ -9,9 +9,9 @@ Navigate each procedural labyrinth and touch the golden beacon shown on the mini
 | Action | Desktop | Touch |
 | --- | --- | --- |
 | Move / turn | WASD or arrows | Direction pad |
-| Sprint | Hold Shift while moving | — |
+| Sprint | Hold Shift while moving | Hold Sprint while moving |
 | Attack | Left click | Star button |
-| Change weapon | I | — |
+| Change weapon | I | Switch button |
 | Pointer/mouse look | F | — |
 | Release pointer | Esc | — |
 | Pause / help | Esc or ? | ? |
@@ -21,8 +21,9 @@ Navigate each procedural labyrinth and touch the golden beacon shown on the mini
 
 - **Health:** enemy attacks remove health. At zero health the current maze resets and two kills are deducted, never below zero.
 - **Stamina:** sprinting drains stamina per second; it recovers when sprinting stops.
-- **Combat:** attacks have a short cooldown and hit living enemies within the crosshair arc and melee range.
+- **Combat:** attacks have a short cooldown and hit living enemies within the crosshair arc and melee range, provided there is a clear path.
 - **Feedback:** weapon movement, camera shake, hit flashes, directional damage indicators, notifications, and synthesized sound communicate actions.
-- **Minimap:** white cells are walls, red is the player, and gold marks the exit.
+- **Minimap:** white cells are walls, red is the player, and gold marks the exit. The exit is also represented by a golden beacon in the world.
+- **Pause:** the game pauses when the tab is hidden or the window loses focus. Pausing releases pointer lock and clears held movement controls.
 
 Sound remains off until the first browser interaction, following autoplay policies. Use the sound button to mute at any time.

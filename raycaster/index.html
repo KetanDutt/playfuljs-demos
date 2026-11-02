@@ -14,7 +14,7 @@
   <div class="crosshair" aria-hidden="true"></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <button class="icon-button home" type="button" onclick="location.href='../'" aria-label="Back to demo gallery">←</button>
-  <button id="mute" class="icon-button mute" type="button" aria-label="Toggle sound">♪</button>
+  <button id="mute" class="icon-button mute" type="button" aria-label="Mute sound" aria-pressed="false">♪</button>
   <button id="help" class="icon-button help" type="button" aria-label="Show controls">?</button>
 
   <section class="modal show" id="instructions" aria-labelledby="game-title">
@@ -34,7 +34,7 @@
 
   <div class="mobile-controls" aria-label="Touch controls">
     <div class="dpad"><button data-control="forward" aria-label="Move forward">▲</button><button data-control="left" aria-label="Turn left">◀</button><button data-control="backward" aria-label="Move backward">▼</button><button data-control="right" aria-label="Turn right">▶</button></div>
-    <button class="attack" data-action="attack" aria-label="Attack">✦</button>
+    <div class="touch-actions"><button data-control="running" aria-label="Hold to sprint">Sprint</button><button data-action="weapon" aria-label="Switch weapon">Switch</button><button class="attack" data-action="attack" aria-label="Attack">✦</button></div>
   </div>
 
   <script src="js/pointerlock.js"></script>

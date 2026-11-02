@@ -7,6 +7,10 @@
 3. Keep browser developer tools open and confirm there are no console or network errors.
 4. Test one desktop viewport, one narrow mobile viewport, keyboard-only navigation, and a device pixel ratio above 1.
 
+## Automated checks
+
+Run `python3 scripts/check_static.py` to validate local references and duplicate IDs. Run `node tests/game.test.js` to check collision boundaries, line of sight, melee occlusion, ray termination, and pause input reset. These checks also run in the Pages workflow. They do not replace testing in a browser.
+
 ## Maze Runner smoke test
 
 - Start and pause from the overlay.
@@ -16,7 +20,9 @@
 - Confirm enemies damage the player and can be defeated.
 - Reach the gold goal; confirm a new maze and incremented level.
 - Resize and background the tab; confirm the game remains stable and pauses.
-- On touch emulation, verify the D-pad and attack control.
+- On touch emulation, verify the D-pad, sprint, weapon switch, and attack controls.
+- Confirm the beacon is visually distinct from enemies and attacks cannot pass through walls.
+- In both particle demos, pause and resume the animation.
 
 ## Code conventions
 

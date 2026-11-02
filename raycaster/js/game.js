@@ -55,7 +55,7 @@ function Controls() {
 	document.addEventListener('keyup', this.onKey.bind(this, false), false);
 
 	document.addEventListener('keydown', function(e){
-		if(player && e.keyCode === 73){
+		if(player && !isPaused && !e.repeat && e.keyCode === 73){
 			player.cycleWeapons();
 		}
 	});
@@ -85,6 +85,7 @@ Controls.prototype.onKey = function(val, e) {
 
 	var state = this.codes[e.keyCode];
 
+	if (isPaused) return;
 	this.states.running = e.shiftKey;
 
 	if (typeof state === 'undefined') return;
@@ -106,7 +107,7 @@ Controls.prototype.onMouse = function(player,vals){
 		amount += CIRCLE;
 	}
 
-	player.direction += amount;
+	if (!isPaused) player.rotate(amount);
 
 };
 
@@ -159,8 +160,8 @@ Player.prototype.rotate = function(angle) {
 Player.prototype.walk = function(distance, angle, map) {
 	var dx = Math.cos(this.direction + angle) * distance;
 	var dy = Math.sin(this.direction + angle) * distance;
-	if (map.get(this.x + dx, this.y) <= 0) this.x += dx;
-	if (map.get(this.x, this.y + dy) <= 0) this.y += dy;
+	if (map.get(this.x + dx, this.y) === 0) this.x += dx;
+	if (map.get(this.x, this.y + dy) === 0) this.y += dy;
 
     var oldPaces = this.paces;
 	this.paces += distance;
@@ -188,7 +189,7 @@ Player.prototype.attack = function() {
             while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
             angleDiff = Math.abs(angleDiff);
 
-            if (dist < 2.5 && angleDiff < Math.PI / 4) {
+            if (dist < 2.5 && angleDiff < Math.PI / 4 && hasLineOfSight(this.x, this.y, obj.x, obj.y, map)) {
                 obj.dead = true;
                 player.kills++;
                 player.hitFlash = -0.18;
@@ -265,7 +266,7 @@ function Map(size) {
 Map.prototype.get = function(x, y) {
 	x = Math.floor(x);
 	y = Math.floor(y);
-	if (x < 0 || x > this.size - 1 || y < 0 || y > this.size - 1) return -1;
+	if (x < 0 || x > this.size - 1 || y < 0 || y > this.size - 1) return 1;
 	return this.wallGrid[y * this.size + x];
 };
 
@@ -302,6 +303,8 @@ Map.prototype.cast = function(point, angle, range, objects) {
 		var nextStep = stepX.length2 < stepY.length2 ? inspect(stepX, 1, 0, origin.distance, stepX.y) : inspect(stepY, 0, 1, origin.distance, stepY.x);
 
 		if (nextStep.distance > range) return [origin];
+        // Nothing behind the first wall can affect this column.
+        if (nextStep.height > 0) return [origin, nextStep];
 		return [origin].concat(ray(nextStep));
 	}
 
@@ -371,7 +374,7 @@ Camera.prototype.onKey = function(val,e){
 }
 
 Camera.prototype.render = function(player, map, objects) {
-    if (player.attackTime > 0) {
+    if (player.attackTime > 0 && !reducedMotion.matches) {
         this.ctx.save();
         var shakeX = (Math.random() - 0.5) * 10 * (player.attackTime / 0.2);
         var shakeY = (Math.random() - 0.5) * 10 * (player.attackTime / 0.2);
@@ -384,7 +387,7 @@ Camera.prototype.render = function(player, map, objects) {
 	this.drawMiniMap(map, player);
     this.drawHUD(player);
 
-    if (player.attackTime > 0) {
+    if (player.attackTime > 0 && !reducedMotion.matches) {
         this.ctx.restore();
     }
 };
@@ -392,7 +395,7 @@ Camera.prototype.render = function(player, map, objects) {
 Camera.prototype.drawHUD = function(player) {
     var ctx = this.ctx;
     var compact = this.width < 600;
-    var x = 20, y = this.height - (compact ? 68 : 76), w = compact ? 130 : 190;
+    var x = 20, y = this.height - (MOBILE ? 158 : compact ? 68 : 76), w = compact ? 110 : 190;
     function bar(label, value, max, color, offset) {
         ctx.fillStyle = 'rgba(4,6,10,.62)'; ctx.fillRect(x, y + offset, w, 13);
         ctx.fillStyle = color; ctx.fillRect(x, y + offset, w * Math.max(0, value / max), 13);
@@ -404,7 +407,7 @@ Camera.prototype.drawHUD = function(player) {
     bar('STAMINA', player.stamina, player.maxStamina, '#65e0bd', 34);
     ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.9)';
     ctx.font = '700 12px ui-monospace, monospace';
-    ctx.fillText('LEVEL ' + player.level + '  ·  ' + player.kills + ' KILLS  ·  FIND THE GOLD BEACON', this.width / 2, 28);
+    ctx.fillText(compact ? 'LEVEL ' + player.level + '  ·  ' + player.kills + ' KILLS' : 'LEVEL ' + player.level + '  ·  ' + player.kills + ' KILLS  ·  FIND THE GOLD BEACON', this.width / 2, compact ? 78 : 28);
     if (player.hitFlash) {
         ctx.fillStyle = player.hitFlash > 0 ? 'rgba(255,20,35,' + Math.abs(player.hitFlash) + ')' : 'rgba(255,220,90,' + Math.abs(player.hitFlash) + ')';
         ctx.fillRect(0, 0, this.width, this.height);
@@ -477,10 +480,9 @@ Camera.prototype.drawSpriteColumn = function(player,map,column,columnProps,sprit
 
 			var brightness = Math.max(sprite.distanceFromPlayer / this.lightRange - map.light, 0) * 100;
 
+            // Fade the image itself, not a rectangular overlay over its transparent pixels.
+            ctx.globalAlpha = Math.max(0.25, 1 - brightness / 150);
             ctx.drawImage(sprite.texture.image, textureX, 0, 1, sprite.texture.height, left, sprite.render.top, width, sprite.render.height);
-            ctx.fillStyle = '#05070a';
-            ctx.globalAlpha = Math.min(0.82, brightness / 125);
-            ctx.fillRect(left, sprite.render.top, width, sprite.render.height);
             ctx.globalAlpha = 1;
 
 
@@ -527,9 +529,7 @@ Camera.prototype.drawSprites = function(player,map,columnProps){
 				angleRelativeToPlayerView = player.direction - angleToPlayer,
 				top = (screenHeight / 2) * (1 + 1 / distance) - height;
 
-			if(angleRelativeToPlayerView >= CIRCLE / 2){
-				angleRelativeToPlayerView -= CIRCLE;
-			}
+            angleRelativeToPlayerView = Math.atan2(Math.sin(angleRelativeToPlayerView), Math.cos(angleRelativeToPlayerView));
 
 			var cameraXOffset = ( screenWidth / 2 ) - (screenRatio * angleRelativeToPlayerView),
 				numColumns = width / screenWidth * resolution,
@@ -692,9 +692,7 @@ Camera.prototype.drawColumn = function(column, ray, angle, map) {
 
 	for (var s = ray.length - 1; s >= 0; s--) {
 		var step = ray[s];
-		var rainDrops = Math.pow(Math.random(), 3) * s;
-		var rain = (rainDrops > 0) && this.project(0.1, angle, step.distance),
-		textureX,wall;
+		var textureX,wall;
 
 		if (s === hit) {
 			textureX = Math.floor(wallTexture.width * step.offset);
@@ -795,6 +793,7 @@ Objects.prototype.update = function(seconds){
 }
 
 var isPaused = true, toastTimer = 0;
+var reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 var display = document.getElementById('display'),
 	player = new Player(15.5, 15.5, Math.PI * 0.3),
 	map = new Map(32),
@@ -808,6 +807,8 @@ function generateLevel(fromDeath) {
     map.generation++;
     if (fromDeath) player.kills = Math.max(0, player.kills - 2);
     player.health = player.maxHealth; player.stamina = player.maxStamina;
+    player.damageIndicators = []; player.attackTime = 0;
+    player.hitFlash = fromDeath ? 0.25 : -0.25;
     for (var i = 0; i < map.size * map.size; i++) map.wallGrid[i] = 1;
     map.objects = [];
 
@@ -860,10 +861,10 @@ function generateLevel(fromDeath) {
     player.x = startX + 0.5;
     player.y = startY + 0.5;
 
-    // Spawn exit object (a golden cowboy acting as a portal)
+    // A distinct beacon makes the goal recognizable in the world and on the map.
     map.addObject({
         color: 'gold',
-        texture: new Bitmap('img/cowboy.png', 639, 1500),
+        texture: new Bitmap('img/beacon.svg', 128, 256),
         height: 1.0,
         width: 0.5,
         floorOffset: 0,
@@ -896,20 +897,16 @@ function spawnEnemy() {
 
 generateLevel();
 
-function badGuyLogic(){
-    function hasLineOfSight(x1, y1, x2, y2, map) {
-        var dx = x2 - x1;
-        var dy = y2 - y1;
-        var dist = Math.sqrt(dx*dx + dy*dy);
-        var steps = Math.ceil(dist * 2);
-        for (var i = 1; i < steps; i++) {
-            var cx = x1 + dx * (i / steps);
-            var cy = y1 + dy * (i / steps);
-            if (map.get(cx, cy) > 0) return false;
-        }
-        return true;
+function hasLineOfSight(x1, y1, x2, y2, map) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var steps = Math.ceil(Math.hypot(dx, dy) * 8);
+    for (var i = 1; i < steps; i++) {
+        if (map.get(x1 + dx * i / steps, y1 + dy * i / steps) !== 0) return false;
     }
+    return true;
+}
 
+function badGuyLogic(){
 	return function(seconds){
 		var self = this;
 
@@ -937,8 +934,8 @@ function badGuyLogic(){
             var moveY = self.speed * seconds * Math.sin(angle);
             var signX = moveX > 0 ? pad : -pad;
             var signY = moveY > 0 ? pad : -pad;
-            if (map.get(self.x + moveX + signX, self.y) <= 0) self.x += moveX;
-            if (map.get(self.x, self.y + moveY + signY) <= 0) self.y += moveY;
+            if (map.get(self.x + moveX + signX, self.y) === 0) self.x += moveX;
+            if (map.get(self.x, self.y + moveY + signY) === 0) self.y += moveY;
 		} else if (dist <= 1.5) {
             // Attack!
             if (self.attackCooldown <= 0 && hasLineOfSight(self.x, self.y, player.x, player.y, map)) {
@@ -959,8 +956,8 @@ function badGuyLogic(){
             var signY = moveY > 0 ? pad : -pad;
 
             var moved = false;
-            if (map.get(self.x + moveX + signX, self.y) <= 0) { self.x += moveX; moved = true; }
-            if (map.get(self.x, self.y + moveY + signY) <= 0) { self.y += moveY; moved = true; }
+            if (map.get(self.x + moveX + signX, self.y) === 0) { self.x += moveX; moved = true; }
+            if (map.get(self.x, self.y + moveY + signY) === 0) { self.y += moveY; moved = true; }
             if (!moved) {
                 self.patrolTimer = 0; // Turn around if stuck
             }
@@ -986,26 +983,35 @@ function showToast(message) {
     el.textContent = message; el.classList.add('show');
     clearTimeout(toastTimer); toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 1800);
 }
+var hasStarted = false;
 function setPaused(value) {
     isPaused = value;
+    if (value) {
+        Object.keys(controls.states).forEach(function(key) { controls.states[key] = false; });
+        pointerRelease();
+    }
     document.getElementById('instructions').classList.toggle('show', value);
-    if (!value) { loop.lastTime = performance.now(); showToast('Find the golden beacon'); }
+    document.getElementById('play').textContent = hasStarted ? 'Resume the maze' : 'Enter the maze';
+    if (!value) { hasStarted = true; loop.lastTime = performance.now(); showToast('Find the golden beacon'); }
 }
 function toggleInstructions(){ setPaused(!isPaused); }
 
 document.getElementById('play').addEventListener('click', function(){ setPaused(false); });
 document.getElementById('help').addEventListener('click', function(){ setPaused(true); });
-document.getElementById('mute').addEventListener('click', function(e){ muted = !muted; e.currentTarget.textContent = muted ? '×' : '♪'; showToast(muted ? 'Sound muted' : 'Sound on'); });
+document.getElementById('mute').addEventListener('click', function(e){ muted = !muted; e.currentTarget.textContent = muted ? '×' : '♪'; e.currentTarget.setAttribute('aria-label', muted ? 'Turn sound on' : 'Mute sound'); e.currentTarget.setAttribute('aria-pressed', String(muted)); showToast(muted ? 'Sound muted' : 'Sound on'); });
 document.addEventListener('keydown', function(e){
-    if (e.code === 'KeyF') camera.toggleFullscreen();
+    if (e.code === 'KeyF' && !isPaused && !e.repeat) camera.toggleFullscreen();
     if (e.code === 'Escape') setTimeout(function(){ if (!document.pointerLockElement) setPaused(true); }, 0);
 });
 document.addEventListener('visibilitychange', function(){ if (document.hidden) setPaused(true); });
+window.addEventListener('blur', function(){ if (!isPaused) setPaused(true); });
 
 document.querySelectorAll('[data-control]').forEach(function(button){
     var state = button.dataset.control;
-    function down(e){ e.preventDefault(); controls.states[state] = true; }
+    function down(e){ e.preventDefault(); if (!isPaused) { controls.states[state] = true; button.setPointerCapture(e.pointerId); } }
     function up(e){ e.preventDefault(); controls.states[state] = false; }
     button.addEventListener('pointerdown', down); button.addEventListener('pointerup', up); button.addEventListener('pointercancel', up); button.addEventListener('pointerleave', up);
 });
 document.querySelector('[data-action="attack"]').addEventListener('pointerdown', function(e){ e.preventDefault(); if (!isPaused) player.attack(); });
+
+document.querySelector('[data-action="weapon"]').addEventListener('click', function(){ if (!isPaused) { player.cycleWeapons(); showToast('Weapon switched'); } });
